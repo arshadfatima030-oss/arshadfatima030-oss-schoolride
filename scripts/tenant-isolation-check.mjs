@@ -1,72 +1,81 @@
 // Cross-school isolation check against a real Supabase project.
-// Signs in as a School B user and tries to read/modify School A rows.
-// Uses the secret key ONLY to create and clean up one labelled probe row.
+// Signs in as a School A admin and a School B admin (publishable key only, no secret key)
+// and checks that B cannot read or modify A's rows. A creates and deletes its own
+// labelled probe rows, so real data is never touched.
 //
-// Env: SB_URL, SB_KEY (publishable), SB_SECRET, SCHOOL_A_ID,
-//      B_EMAIL, B_PASSWORD
+// Env: SB_URL, SB_KEY (publishable), SCHOOL_A_ID, A_EMAIL, A_PASSWORD, B_EMAIL, B_PASSWORD
 import { createClient } from "@supabase/supabase-js";
 
-const { SB_URL, SB_KEY, SB_SECRET, SCHOOL_A_ID, B_EMAIL, B_PASSWORD } = process.env;
-for (const [k, v] of Object.entries({ SB_URL, SB_KEY, SB_SECRET, SCHOOL_A_ID, B_EMAIL, B_PASSWORD })) {
-  if (!v) throw new Error(`Missing ${k}`);
-}
+const env = process.env;
+const required = ["SB_URL", "SB_KEY", "SCHOOL_A_ID", "A_EMAIL", "A_PASSWORD", "B_EMAIL", "B_PASSWORD"];
+for (const k of required) if (!env[k]) throw new Error(`Missing ${k}`);
+const { SB_URL, SB_KEY, SCHOOL_A_ID } = env;
 
-const admin = createClient(SB_URL, SB_SECRET, { auth: { persistSession: false } });
-const b = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+async function signIn(email, password) {
+  const c = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+  const { error } = await c.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return c;
+}
+const a = await signIn(env.A_EMAIL, env.A_PASSWORD);
+const b = await signIn(env.B_EMAIL, env.B_PASSWORD);
 
 const results = [];
 const record = (name, pass, detail) => results.push({ name, pass, detail });
+const n = (rows) => (rows ?? []).length;
 
-const { error: signInError } = await b.auth.signInWithPassword({ email: B_EMAIL, password: B_PASSWORD });
-if (signInError) throw signInError;
-
-// Probe row owned by School A, used for write tests so real data is never touched.
-const { data: probe, error: probeError } = await admin
-  .from("students")
-  .insert({ name: "DEVIN ISOLATION PROBE", student_class: "TEST", parent_phone: "+923000000000", school_id: SCHOOL_A_ID })
-  .select("id")
-  .single();
-if (probeError) throw probeError;
+const PROBES = {
+  students: { name: "DEVIN ISOLATION PROBE", student_class: "TEST", parent_phone: "+923000000000" },
+  buses: { registration_number: "DEVIN-PROBE" },
+  drivers: { driver_name: "DEVIN PROBE DRIVER", phone: "+923000000002", license_number: "DEVIN-PROBE" },
+  routes: { route_name: "DEVIN PROBE ROUTE", starting_point: "TEST", destination: "TEST" },
+  attendance: { student_name: "DEVIN PROBE", attendance_date: "2000-01-01", status: "Present" },
+};
+const created = {};
 
 try {
-  const { data: aStudents } = await b.from("students").select("id").eq("school_id", SCHOOL_A_ID);
-  record("B cannot read A students", (aStudents ?? []).length === 0, `${aStudents?.length ?? 0} rows visible`);
-
-  const { data: aSchool } = await b.from("schools").select("id").eq("id", SCHOOL_A_ID);
-  record("B cannot read A school record", (aSchool ?? []).length === 0, `${aSchool?.length ?? 0} rows visible`);
-
-  const { data: aProfiles } = await b.from("profiles").select("user_id").eq("school_id", SCHOOL_A_ID);
-  record("B cannot read A profiles", (aProfiles ?? []).length === 0, `${aProfiles?.length ?? 0} rows visible`);
-
-  for (const t of ["buses", "drivers", "routes", "attendance"]) {
-    const { data } = await b.from(t).select("id");
-    record(`B cannot read A ${t}`, (data ?? []).length === 0, `${data?.length ?? 0} rows visible`);
+  for (const [t, row] of Object.entries(PROBES)) {
+    const { data, error } = await a.from(t).insert({ ...row, school_id: SCHOOL_A_ID }).select("id").single();
+    if (error) throw new Error(`A could not create ${t} probe: ${error.message}`);
+    created[t] = data.id;
   }
 
-  const { data: updated } = await b.from("students").update({ name: "HACKED" }).eq("id", probe.id).select("id");
-  record("B cannot update A student", (updated ?? []).length === 0, `${updated?.length ?? 0} rows updated`);
+  const { data: aSchool } = await b.from("schools").select("id").eq("id", SCHOOL_A_ID);
+  record("B cannot read A school record", n(aSchool) === 0, `${n(aSchool)} rows visible`);
+  const { data: aProfiles } = await b.from("profiles").select("user_id").eq("school_id", SCHOOL_A_ID);
+  record("B cannot read A profiles", n(aProfiles) === 0, `${n(aProfiles)} rows visible`);
 
-  const { data: deleted } = await b.from("students").delete().eq("id", probe.id).select("id");
-  record("B cannot delete A student", (deleted ?? []).length === 0, `${deleted?.length ?? 0} rows deleted`);
+  for (const [t, row] of Object.entries(PROBES)) {
+    const { data: own } = await a.from(t).select("id").eq("id", created[t]);
+    record(`A can read its own ${t}`, n(own) === 1, `${n(own)} rows visible`);
 
-  const { data: inserted, error: insertErr } = await b
-    .from("students")
-    .insert({ name: "DEVIN SPOOF PROBE", student_class: "TEST", parent_phone: "+923000000001", school_id: SCHOOL_A_ID })
-    .select("id");
-  record("B cannot insert into A by spoofing school_id", Boolean(insertErr) || (inserted ?? []).length === 0, insertErr ? insertErr.message : `${inserted?.length} rows inserted`);
-  if (inserted?.length) await admin.from("students").delete().in("id", inserted.map((r) => r.id));
+    const { data: seen } = await b.from(t).select("id").eq("school_id", SCHOOL_A_ID);
+    record(`B cannot read A ${t}`, n(seen) === 0, `${n(seen)} rows visible`);
+
+    const field = Object.keys(row)[0];
+    const { data: upd } = await b.from(t).update({ [field]: "HACKED" }).eq("id", created[t]).select("id");
+    record(`B cannot update A ${t}`, n(upd) === 0, `${n(upd)} rows updated`);
+
+    const { data: del } = await b.from(t).delete().eq("id", created[t]).select("id");
+    record(`B cannot delete A ${t}`, n(del) === 0, `${n(del)} rows deleted`);
+
+    const { data: ins, error: insErr } = await b.from(t).insert({ ...row, school_id: SCHOOL_A_ID }).select("id");
+    record(`B cannot insert into A ${t} by spoofing school_id`, Boolean(insErr) || n(ins) === 0,
+      insErr ? insErr.message : `${n(ins)} rows inserted`);
+    if (n(ins)) console.warn(`WARNING: spoofed ${t} rows created: ${ins.map((r) => r.id)}`);
+  }
 
   const { data: me } = await b.auth.getUser();
-  const { data: escalated, error: escErr } = await b.from("profiles").update({ school_id: SCHOOL_A_ID }).eq("user_id", me.user.id).select("user_id");
-  record("B cannot move itself into School A", Boolean(escErr) || (escalated ?? []).length === 0, escErr ? escErr.message : `${escalated?.length} rows updated`);
-  if (escalated?.length) console.warn("WARNING: profile school_id was changed; restore it manually.");
-
+  const { data: moved, error: moveErr } = await b.from("profiles").update({ school_id: SCHOOL_A_ID }).eq("user_id", me.user.id).select("user_id");
+  record("B cannot move itself into School A", Boolean(moveErr) || n(moved) === 0, moveErr ? moveErr.message : `${n(moved)} rows updated`);
   const { data: roleUp, error: roleErr } = await b.from("profiles").update({ role: "super_admin" }).eq("user_id", me.user.id).select("user_id");
-  record("B cannot change its own role", Boolean(roleErr) || (roleUp ?? []).length === 0, roleErr ? roleErr.message : `${roleUp?.length} rows updated`);
-  if (roleUp?.length) await admin.from("profiles").update({ role: "admin" }).eq("user_id", me.user.id);
+  record("B cannot change its own role", Boolean(roleErr) || n(roleUp) === 0, roleErr ? roleErr.message : `${n(roleUp)} rows updated`);
+  if (n(moved) || n(roleUp)) console.warn("WARNING: B's profile was modified; restore it manually.");
 } finally {
-  await admin.from("students").delete().eq("id", probe.id);
-  await admin.from("students").delete().eq("name", "HACKED").eq("school_id", SCHOOL_A_ID);
+  for (const [t, id] of Object.entries(created)) {
+    const { error } = await a.from(t).delete().eq("id", id);
+    if (error) console.warn(`Cleanup failed for ${t} ${id}: ${error.message}`);
+  }
 }
 
 for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}  (${r.detail})`);

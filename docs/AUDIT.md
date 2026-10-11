@@ -37,16 +37,29 @@ Run with `scripts/tenant-isolation-check.mjs`, signed in as an admin of a second
 
 Write probes used only throwaway rows created for the test; all were removed afterwards and real row counts verified unchanged.
 
+### After migration (applied 2026-10-11)
+Policy review (DB access) found 12 permissive `to authenticated using (true)` SELECT/INSERT/DELETE policies on
+`buses`, `drivers`, `routes`, `attendance`; no triggers; `my_role()`/`my_school_id()` are SECURITY DEFINER with
+`search_path=public`. `students`/`schools`/`profiles` policies were already tenant-scoped and left untouched.
+
+Steps: `pg_dump` (public schema + data) backup → dry run of all three migrations in one rolled-back transaction →
+apply in order. The backfill excluded the "Devin Test School B" fixture (created after all legacy rows), so legacy
+rows went to Demo School; the one attendance row was linked to its student by unique name match.
+
+Re-run of `scripts/tenant-isolation-check.mjs` (now uses only the publishable key; A creates/removes its own probe
+rows): **29/29 PASS** — B cannot read, update, delete or spoof-insert A's students, buses, drivers, routes or
+attendance; A can still read its own rows; B cannot change its role or school. Real row counts unchanged.
+
 ## Prioritized risks
-1. **Critical:** any authenticated user can read, insert and delete buses, drivers, routes and attendance across schools.
-2. **High:** those tables have no `school_id`, so ownership cannot be enforced yet.
+1. ~~**Critical:** any authenticated user can read, insert and delete buses, drivers, routes and attendance across schools.~~ Fixed by the tenant migrations.
+2. ~~**High:** those tables have no `school_id`.~~ Fixed (`school_id NOT NULL`, defaults to caller's school).
 3. **High:** relationships are free text (attendance by student name; bus↔driver↔route by name), so renames break links and duplicates are undetectable.
-4. **Medium:** `profiles.role` is unconstrained text; no membership table for multi-school staff.
-5. **Medium:** secret key was shared in chat — rotate it.
+4. **Medium:** `profiles_role_check` only allows `super_admin`, `admin`, `parent`, so transport manager / accountant / teacher / driver roles cannot be assigned yet; no membership table for multi-school staff.
+5. **Medium:** the secret key and DB password were shared in chat — rotate/reset both.
 6. **Low:** students store parent details inline; a guardian model is needed for the parent portal.
 
 ## Repair plan
-1. Apply `supabase/migrations/2026101100010*` → `...0300` (add `school_id`, backfill to the single existing school, school-scoped RLS), **after** dropping the existing permissive policies found in review. Re-run the isolation check; all 12+ must pass.
+1. ~~Apply the tenant migrations and re-run the isolation check.~~ Done (29/29).
 2. Then enable create/edit for buses, drivers, routes, attendance in the app.
 3. Replace free-text links with FKs (route stops, bus/driver assignments, attendance.student_id).
 4. Continue with spec phases 3+ (bulk import, trips, QR, fees, parent portal, GPS, subscriptions).

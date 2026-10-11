@@ -23,9 +23,9 @@ Migrations live in `supabase/migrations`, each with a matching script in `supaba
 They are **not** applied automatically. Before applying: take a backup
 (`pg_dump --schema-only` and a data dump), review existing policies, then run each file in order with `psql "$SUPABASE_DB_URL" -f <file>` and the verification queries in the file.
 
-Tenant isolation check (needs a second school's test user):
+Tenant isolation check (needs admin test users in two schools; no secret key):
 ```bash
-SB_URL=... SB_KEY=... SB_SECRET=... SCHOOL_A_ID=... B_EMAIL=... B_PASSWORD=... node scripts/tenant-isolation-check.mjs
+SB_URL=... SB_KEY=... SCHOOL_A_ID=... A_EMAIL=... A_PASSWORD=... B_EMAIL=... B_PASSWORD=... node scripts/tenant-isolation-check.mjs
 ```
 
 ## Security notes

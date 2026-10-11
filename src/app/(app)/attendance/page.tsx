@@ -7,16 +7,15 @@ import { requireSession } from "@/lib/session";
 type Row = { id: number; attendance_date: string; student_name: string; status: string };
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  await requireSession(["admin", "transport_manager", "teacher"]);
+  const ctx = await requireSession(["admin", "transport_manager", "teacher"]);
   const { page, from, to } = pageRange((await searchParams).page);
-  const { rows, total, error } = await listRows<Row>("attendance", "id, attendance_date, student_name, status", { from, to, order: "attendance_date", ascending: false });
+  const { rows, total, error } = await listRows<Row>("attendance", "id, attendance_date, student_name, status", { filters: [{ column: "school_id", value: ctx.schoolId! }], from, to, order: "attendance_date", ascending: false });
 
   return (
     <>
       <PageHeader title="Attendance" description="Recorded attendance, newest first." />
       <Notice>
-        Read-only for now. This table has no <code>school_id</code> yet, so adding or editing records is disabled
-        until the tenant-isolation migration is approved and applied.
+        Read-only for now. Create and edit forms for this school-scoped table are the next step.
       </Notice>
       {error && <Notice tone="error">Records could not be loaded. Please try again.</Notice>}
       <DataTable caption="Attendance" rows={rows} empty="No records yet." columns={[

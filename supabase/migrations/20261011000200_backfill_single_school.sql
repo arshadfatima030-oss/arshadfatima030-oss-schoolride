@@ -1,6 +1,7 @@
 -- Phase 2 / step 2: backfill school ownership.
--- REQUIRES OWNER CONFIRMATION: only valid while the database contains exactly one school,
--- in which case every legacy row can only belong to it. Aborts otherwise — do not guess.
+-- Only valid while the database contains exactly one real school, in which case every legacy
+-- row can only belong to it. Aborts otherwise — do not guess. The excluded id is the
+-- "Devin Test School B" fixture, created 2026-10-11 after all legacy rows existed.
 begin;
 
 do $$
@@ -8,11 +9,13 @@ declare
   n_schools int;
   the_school uuid;
 begin
-  select count(*) into n_schools from public.schools;
+  select count(*) into n_schools from public.schools
+  where id <> '54f1f68f-e1fc-42e0-a8a6-149df4203f7e';
   if n_schools <> 1 then
-    raise exception 'Expected exactly 1 school, found %. Backfill ownership manually.', n_schools;
+    raise exception 'Expected exactly 1 real school, found %. Backfill ownership manually.', n_schools;
   end if;
-  select id into the_school from public.schools;
+  select id into the_school from public.schools
+  where id <> '54f1f68f-e1fc-42e0-a8a6-149df4203f7e';
 
   update public.buses      set school_id = the_school where school_id is null;
   update public.drivers    set school_id = the_school where school_id is null;
