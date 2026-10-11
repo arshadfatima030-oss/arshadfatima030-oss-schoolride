@@ -11,11 +11,11 @@ Status: Implemented · Tested · Blocked · Pending
 | UI | Responsive sidebar layout, role-based nav, focus states | Implemented |
 | Dashboard | Live counts, all filtered by the user's school | Implemented |
 | Students | Paginated list, add form, PK phone normalisation | Implemented; phone unit-tested |
-| Buses/Drivers/Routes/Attendance | Read-only paginated lists | Implemented |
-| Buses/Drivers/Routes/Attendance | Create/edit | Pending (unblocked) |
+| Buses/Drivers/Routes/Attendance | Paginated lists, school-filtered | Implemented |
+| Buses/Drivers/Routes/Attendance | Create/edit (admin, transport manager; teachers create attendance), delete (admin) | Implemented; schemas/permissions unit-tested |
 | DB | Tenant migrations + rollback scripts | Implemented, applied 2026-10-11 after backup + dry run |
 | DB | Existing policy/trigger/function review | Done (see AUDIT.md) |
 | Security | Cross-school isolation check script | Implemented, Tested: 29/29 pass after migration (8/12 before) |
 | Bulk import, trips, QR, fees, parent portal, GPS, notifications, subscriptions, super admin | — | Pending |
 | Repo | Push + PR | Done |
-| Roles | Allow transport_manager/accountant/teacher/driver in `profiles_role_check` | Pending |
+| Roles | Allow transport_manager/accountant/teacher/driver in `profiles_role_check` | Migration `000400` written, not applied — waiting on new DB password |

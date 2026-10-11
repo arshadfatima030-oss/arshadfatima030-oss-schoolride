@@ -28,3 +28,10 @@ export async function listRows<T>(
   if (error) console.error(`list ${table} failed`, error.message);
   return { rows: (data ?? []) as T[], total: count ?? 0, error: Boolean(error) };
 }
+
+export async function getRow<T>(table: string, columns: string, id: number, schoolId: string): Promise<T | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from(table).select(columns).eq("id", id).eq("school_id", schoolId).maybeSingle();
+  if (error) console.error(`get ${table} failed`, error.message);
+  return (data as T | null) ?? null;
+}
