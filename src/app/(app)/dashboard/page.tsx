@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Notice, PageHeader } from "@/components/page-header";
+import { PageHeader } from "@/components/page-header";
 import { todayInZone } from "@/lib/dates";
 import { countRows, type CountResult } from "@/lib/queries";
 import { requireSession } from "@/lib/session";
